@@ -27,6 +27,11 @@ func main() {
 		log.Fatalf("Error parsing ELF: %v", err)
 	}
 
+	println(elfInfo.GoVersion)
+	for _, sym := range elfInfo.SymbolTable {
+		println(sym.Name, sym.Offset)
+	}
+
 	snapshot, err := proc.Get(pid).Snapshot()
 	if err != nil {
 		log.Fatalf("Error taking snapshot: %v", err)
