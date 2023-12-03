@@ -24,6 +24,10 @@ type Snapshot struct {
 	Texts, Others, Heaps []*MemoryPiece
 }
 
+func (s *Snapshot) InitAddr() uint64 {
+	return s.Texts[0].Start
+}
+
 func (proc *Proc) Snapshot() (snapshot *Snapshot, err error) {
 	fs, err := procfs.NewDefaultFS()
 	if err != nil {

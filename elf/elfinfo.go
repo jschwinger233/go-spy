@@ -24,7 +24,7 @@ type Symbol struct {
 	Name   string
 }
 
-type SymbolTable []Symbol // sorted
+type Symbols []Symbol // sorted
 
 type G struct {
 	Size    uint64
@@ -37,8 +37,30 @@ func (g *G) FieldOffset(name string) uint64 {
 
 type ELFInfo struct {
 	GoVersion string
-	SymbolTable
+	Symbols
 	GProto, AllgsProto *Proto
+}
+
+func (e ELFInfo) LookupSymbol(offset uint64) Symbol {
+	idx, _ := slices.BinarySearchFunc(e.Symbols, offset, func(x Symbol, offset uint64) int {
+		if x.Offset > offset {
+			return 1
+		} else if x.Offset < offset {
+			return -1
+		}
+		return 0
+	})
+	if idx == len(e.Symbols) {
+		return e.Symbols[idx-1]
+	}
+	if e.Symbols[idx].Offset == offset {
+		return e.Symbols[idx]
+	}
+	if idx == 0 {
+		return e.Symbols[0]
+	}
+	return e.Symbols[idx-1]
+
 }
 
 func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
@@ -62,13 +84,13 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 	}
 	textSection := elfFile.Section(".text")
 	for _, f := range append(raw.UserFunctions, raw.StdFunctions...) {
-		elfInfo.SymbolTable = append(elfInfo.SymbolTable,
+		elfInfo.Symbols = append(elfInfo.Symbols,
 			Symbol{
 				Offset: f.Address - textSection.Addr + textSection.Offset,
 				Name:   f.Name,
 			})
 	}
-	slices.SortFunc(elfInfo.SymbolTable,
+	slices.SortFunc(elfInfo.Symbols,
 		func(a, b Symbol) int {
 			if a.Offset < b.Offset {
 				return -1
@@ -83,6 +105,8 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 			"atomicstatus": &Field{144, 4},
 			"stack.lo":     &Field{0, 8},
 			"stack.hi":     &Field{8, 8},
+			"sched.pc":     &Field{56 + 8, 8},
+			"sched.bp":     &Field{56 + 48, 8},
 		},
 	}
 	elfInfo.AllgsProto = &Proto{

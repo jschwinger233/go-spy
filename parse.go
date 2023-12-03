@@ -20,15 +20,33 @@ type Goroutine struct {
 	Status  uint32
 	StackLo uint64
 	StackHi uint64
+	Pc, Bp  uint64
+}
+
+type Frame struct {
+	Bp uint64
+}
+
+func (f *Frame) Next(snapshot *proc.Snapshot) *Frame {
+	return &Frame{Bytes(snapshot.MustX(f.Bp, 8)).ToUint64()}
+}
+
+func (f *Frame) Pc(snapshot *proc.Snapshot) uint64 {
+	return Bytes(snapshot.MustX(f.Bp+8, 8)).ToUint64()
+}
+
+func (g *Goroutine) Frame() *Frame {
+	return &Frame{g.Bp}
 }
 
 func parseGoroutines(ei *elf.ELFInfo, snapshot *proc.Snapshot) (goroutines []*Goroutine, err error) {
-	addrOfAllgs, err := searchAllgs(ei, snapshot)
+	allgs, err := searchAllgs(ei, snapshot)
 	if err != nil {
 		return
 	}
-	fmt.Printf("allgs: %#x\n", addrOfAllgs)
-	return
+	fmt.Printf("allgs: %#x\n", allgs)
+
+	return allgs.Gs, nil
 }
 
 func searchAllgs(ei *elf.ELFInfo, snapshot *proc.Snapshot) (allgs *Allgs, err error) {
@@ -116,6 +134,8 @@ func derefAllgs(allgsPointer *Pointer, ei *elf.ELFInfo) (allgs *Allgs, err error
 		if g.StackHi < g.StackLo || (g.StackHi-g.StackLo)%1024 != 0 {
 			return nil, fmt.Errorf("(allgs.array[%d].stack.hi (%#x) - stack.lo (%#x)) % 1024 != 0", i, g.StackHi, g.StackLo)
 		}
+		g.Pc = gPointer.Field("sched.pc").ToUint64()
+		g.Bp = gPointer.Field("sched.bp").ToUint64()
 		allgs.Gs = append(allgs.Gs, g)
 	}
 	return allgs, nil
