@@ -26,9 +26,19 @@ type Symbol struct {
 
 type SymbolTable []Symbol // sorted
 
+type G struct {
+	Size    uint64
+	Offsets map[string]uint64
+}
+
+func (g *G) FieldOffset(name string) uint64 {
+	return g.Offsets[name]
+}
+
 type ELFInfo struct {
 	GoVersion string
 	SymbolTable
+	GProto, AllgsProto *Proto
 }
 
 func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
@@ -67,5 +77,33 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 			}
 			return 0
 		})
+	elfInfo.GProto = &Proto{
+		Fields: map[string]*Field{
+			"goid":         &Field{152, 8},
+			"atomicstatus": &Field{144, 4},
+			"stack.lo":     &Field{0, 8},
+			"stack.hi":     &Field{8, 8},
+		},
+	}
+	elfInfo.AllgsProto = &Proto{
+		Fields: map[string]*Field{
+			"array": &Field{0, 8},
+			"len":   &Field{8, 8},
+		},
+	}
 	return
+}
+
+type Proto struct {
+	Fields map[string]*Field
+}
+
+type Field struct {
+	Offset uint64
+	Size   uint64
+}
+
+func (p *Proto) GetField(name string) (*Field, bool) {
+	field, ok := p.Fields[name]
+	return field, ok
 }

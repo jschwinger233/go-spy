@@ -32,7 +32,7 @@ func main() {
 		log.Fatalf("Error taking snapshot: %v", err)
 	}
 
-	goroutines, err := elfInfo.ParseSnapshot(snapshot)
+	goroutines, err := parseGoroutines(elfInfo, snapshot)
 	if err != nil {
 		log.Fatalf("Error parsing snapshot: %v", err)
 	}
