@@ -10,6 +10,20 @@ import (
 	"github.com/jschwinger233/go-spy/proc"
 )
 
+type GoroutineStatus = uint32
+
+const (
+	Runnable GoroutineStatus = iota + 1
+	Running
+	Syscall
+	Waiting
+	Moribund
+	Dead
+	Enqueue
+	Copystack
+	Preempt
+)
+
 type Allgs struct {
 	Gs  []*Goroutine
 	Len uint64
@@ -23,20 +37,59 @@ type Goroutine struct {
 	Pc, Bp  uint64
 }
 
+func (g *Goroutine) Validate(idx uint64) (err error) {
+	if idx == 0 && g.Goid != 1 {
+		return fmt.Errorf("goid (%d) != 1", g.Goid)
+	}
+	if g.Status < Runnable || g.Status > Preempt {
+		return fmt.Errorf("status (%d) < 1 || > 9", g.Status)
+	}
+	if g.Status != Dead && (g.StackLo == 0 || g.StackHi == 0) {
+		return fmt.Errorf("allgs.array[%d].stack.lo (%#x) or stack.hi (%#x) == 0", idx, g.StackLo, g.StackHi)
+	}
+	if g.StackHi < g.StackLo || (g.StackHi-g.StackLo)%1024 != 0 {
+		return fmt.Errorf("(allgs.array[%d].stack.hi (%#x) - stack.lo (%#x)) % 1024 != 0", idx, g.StackHi, g.StackLo)
+	}
+	return
+}
+func (g *Goroutine) StatusName() string {
+	switch g.Status {
+	case Runnable:
+		return "runnable"
+	case Running:
+		return "running"
+	case Syscall:
+		return "syscall"
+	case Waiting:
+		return "waiting"
+	case Moribund:
+		return "moribund"
+	case Dead:
+		return "dead"
+	case Enqueue:
+		return "enqueue"
+	case Copystack:
+		return "copystack"
+	case Preempt:
+		return "preempty"
+	}
+	return "unknown"
+}
+
+func (g *Goroutine) Frame() *Frame {
+	return &Frame{g.Bp}
+}
+
 type Frame struct {
 	Bp uint64
 }
 
 func (f *Frame) Next(snapshot *proc.Snapshot) *Frame {
-	return &Frame{Bytes(snapshot.MustX(f.Bp, 8)).ToUint64()}
+	return &Frame{Bytes(snapshot.X(f.Bp, 8)).ToUint64()}
 }
 
 func (f *Frame) Pc(snapshot *proc.Snapshot) uint64 {
-	return Bytes(snapshot.MustX(f.Bp+8, 8)).ToUint64()
-}
-
-func (g *Goroutine) Frame() *Frame {
-	return &Frame{g.Bp}
+	return Bytes(snapshot.X(f.Bp+8, 8)).ToUint64()
 }
 
 func parseGoroutines(ei *elf.ELFInfo, snapshot *proc.Snapshot) (goroutines []*Goroutine, err error) {
@@ -44,8 +97,6 @@ func parseGoroutines(ei *elf.ELFInfo, snapshot *proc.Snapshot) (goroutines []*Go
 	if err != nil {
 		return
 	}
-	fmt.Printf("allgs: %#x\n", allgs)
-
 	return allgs.Gs, nil
 }
 
@@ -58,7 +109,6 @@ func searchAllgs(ei *elf.ELFInfo, snapshot *proc.Snapshot) (allgs *Allgs, err er
 				snapshot: snapshot,
 			}
 			if allgs, err = derefAllgs(allgsPointer, ei); err != nil {
-				//fmt.Printf("derefAllgs failed: %v\n", err)
 				continue
 			}
 			fmt.Printf("allgs found at %#x\n", addr)
@@ -80,11 +130,11 @@ func (p *Pointer) Field(name string) Bytes {
 		// Should never happen, so panic.
 		log.Fatalf("field %s not found", name)
 	}
-	return p.snapshot.MustX(p.addr+field.Offset, field.Size)
+	return p.snapshot.X(p.addr+field.Offset, field.Size)
 }
 
 func (p *Pointer) Index(i, size uint64) Bytes {
-	return p.snapshot.MustX(p.addr+i*size, size)
+	return p.snapshot.X(p.addr+i*size, size)
 }
 
 type Bytes []byte
@@ -98,44 +148,36 @@ func (b Bytes) ToUint32() uint32 {
 }
 
 func derefAllgs(allgsPointer *Pointer, ei *elf.ELFInfo) (allgs *Allgs, err error) {
-	allgs = &Allgs{}
-	allgs.Len = allgsPointer.Field("len").ToUint64()
+	allgs = &Allgs{
+		Len: allgsPointer.Field("len").ToUint64(),
+	}
 	if allgs.Len < 3 {
 		return nil, fmt.Errorf("allgs.len (%d) < 3", allgs.Len)
 	}
-	array := allgsPointer.Field("array").ToUint64()
-	if array == 0 {
-		return nil, fmt.Errorf("allgs.array == 0")
-	}
 	arrayPointer := &Pointer{
-		addr:     array,
+		addr:     allgsPointer.Field("array").ToUint64(),
 		snapshot: allgsPointer.snapshot,
 	}
+	if arrayPointer.addr == 0 {
+		return nil, fmt.Errorf("allgs.array == 0")
+	}
 	for i := uint64(0); i < allgs.Len; i++ {
-		g := &Goroutine{}
 		gPointer := &Pointer{
 			addr:     arrayPointer.Index(i, 8).ToUint64(),
 			proto:    ei.GProto,
 			snapshot: allgsPointer.snapshot,
 		}
-		g.Goid = gPointer.Field("goid").ToUint64()
-		if i == 0 && g.Goid != 1 {
-			return nil, fmt.Errorf("allgs.array[0].goid (%d) != 1", g.Goid)
+		g := &Goroutine{
+			Goid:    gPointer.Field("goid").ToUint64(),
+			Status:  gPointer.Field("atomicstatus").ToUint32(),
+			StackLo: gPointer.Field("stack.lo").ToUint64(),
+			StackHi: gPointer.Field("stack.hi").ToUint64(),
+			Pc:      gPointer.Field("sched.pc").ToUint64(),
+			Bp:      gPointer.Field("sched.bp").ToUint64(),
 		}
-		g.Status = gPointer.Field("atomicstatus").ToUint32()
-		if g.Status < 1 || g.Status > 9 {
-			return nil, fmt.Errorf("allgs.array[%d].atomicstatus (%d) < 1 || > 9", i, g.Status)
+		if err = g.Validate(i); err != nil {
+			return
 		}
-		g.StackLo = gPointer.Field("stack.lo").ToUint64()
-		g.StackHi = gPointer.Field("stack.hi").ToUint64()
-		if g.Status != 6 && (g.StackLo == 0 || g.StackHi == 0) {
-			return nil, fmt.Errorf("allgs.array[%d].stack.lo (%#x) or stack.hi (%#x) == 0", i, g.StackLo, g.StackHi)
-		}
-		if g.StackHi < g.StackLo || (g.StackHi-g.StackLo)%1024 != 0 {
-			return nil, fmt.Errorf("(allgs.array[%d].stack.hi (%#x) - stack.lo (%#x)) % 1024 != 0", i, g.StackHi, g.StackLo)
-		}
-		g.Pc = gPointer.Field("sched.pc").ToUint64()
-		g.Bp = gPointer.Field("sched.bp").ToUint64()
 		allgs.Gs = append(allgs.Gs, g)
 	}
 	return allgs, nil
