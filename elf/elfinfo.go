@@ -2,22 +2,9 @@ package elf
 
 import (
 	"debug/elf"
-	"encoding/json"
 	"os"
-	"os/exec"
 	"slices"
 )
-
-type Function struct {
-	Address uint64 `json:"Start"`
-	Name    string `json:"FullName"`
-}
-
-type rawInfo struct {
-	GoVersion     string     `json:"version"`
-	UserFunctions []Function `json:"UserFunctions"`
-	StdFunctions  []Function `json:"StdFunctions"`
-}
 
 type Symbol struct {
 	Offset uint64
@@ -64,15 +51,11 @@ func (e ELFInfo) LookupSymbol(offset uint64) Symbol {
 }
 
 func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
-	out, err := exec.Command("GoReSym", "-d", e.filename).Output()
+	metadata, err := recoverMetadata(e.filename)
 	if err != nil {
-		return nil, err
-	}
-	raw := &rawInfo{}
-	if err = json.Unmarshal(out, raw); err != nil {
 		return
 	}
-	elfInfo = &ELFInfo{GoVersion: raw.GoVersion}
+	elfInfo = &ELFInfo{GoVersion: metadata.Version}
 	f, err := os.Open(e.filename)
 	if err != nil {
 		return
@@ -83,11 +66,11 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 		return
 	}
 	textSection := elfFile.Section(".text")
-	for _, f := range append(raw.UserFunctions, raw.StdFunctions...) {
+	for _, f := range append(metadata.UserFunctions, metadata.StdFunctions...) {
 		elfInfo.Symbols = append(elfInfo.Symbols,
 			Symbol{
-				Offset: f.Address - textSection.Addr + textSection.Offset,
-				Name:   f.Name,
+				Offset: f.Start - textSection.Addr + textSection.Offset,
+				Name:   f.FullName,
 			})
 	}
 	slices.SortFunc(elfInfo.Symbols,
