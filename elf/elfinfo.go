@@ -2,6 +2,7 @@ package elf
 
 import (
 	"debug/elf"
+	"fmt"
 	"os"
 	"slices"
 )
@@ -26,6 +27,8 @@ type ELFInfo struct {
 	GoVersion string
 	Symbols
 	GProto, AllgsProto *Proto
+
+	UnrealRuntimeGoexitOffset uint64
 }
 
 func (e ELFInfo) LookupSymbol(offset uint64) Symbol {
@@ -66,7 +69,10 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 		return
 	}
 	textSection := elfFile.Section(".text")
-	for _, f := range append(metadata.UserFunctions, metadata.StdFunctions...) {
+	for _, f := range metadata.Functions {
+		if f.FullName == "runtime.goexit" {
+			elfInfo.UnrealRuntimeGoexitOffset = f.Start - textSection.Addr + textSection.Offset
+		}
 		elfInfo.Symbols = append(elfInfo.Symbols,
 			Symbol{
 				Offset: f.Start - textSection.Addr + textSection.Offset,
@@ -99,6 +105,18 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 		},
 	}
 	return
+}
+
+func (e *ELFInfo) AdjustOffset(offset uint64) {
+	for idx, symbol := range e.Symbols {
+		e.Symbols[idx].Offset = symbol.Offset + offset
+		if symbol.Name == "main.main" {
+			fmt.Printf("new main.main offset: %x\n", e.Symbols[idx].Offset)
+		}
+		if symbol.Name == "runtime.goexit" {
+			fmt.Printf("new runtime.goexit offset: %x\n", e.Symbols[idx].Offset)
+		}
+	}
 }
 
 type Proto struct {

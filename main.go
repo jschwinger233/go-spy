@@ -42,6 +42,13 @@ func main() {
 	}
 
 	initAddr := snapshot.InitAddr()
+
+	var realRuntimeGoExitOffset uint64
+	for frame := goroutines[0].Frame(); frame.Bp != 0; frame = frame.Next(snapshot) {
+		realRuntimeGoExitOffset = frame.Pc(snapshot) - initAddr - 1
+	}
+	elfInfo.AdjustOffset(realRuntimeGoExitOffset - elfInfo.UnrealRuntimeGoexitOffset)
+
 	for _, goroutine := range goroutines {
 		if goroutine.Status == Dead {
 			continue
@@ -56,5 +63,5 @@ func main() {
 
 func printSymbol(pc, initAddr uint64, elfInfo *elf.ELFInfo) {
 	symbol := elfInfo.LookupSymbol(pc - initAddr)
-	fmt.Printf("  %s+%d\n", symbol.Name, pc-initAddr-symbol.Offset)
+	fmt.Printf("  0x%x %s+%d\n", pc, symbol.Name, pc-initAddr-symbol.Offset)
 }
