@@ -111,7 +111,6 @@ func searchAllgs(ei *elf.ELFInfo, snapshot *proc.Snapshot) (allgs *Allgs, err er
 			if allgs, err = derefAllgs(allgsPointer, ei); err != nil {
 				continue
 			}
-			fmt.Printf("allgs found at %#x\n", addr)
 			return
 		}
 	}

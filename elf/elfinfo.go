@@ -2,7 +2,6 @@ package elf
 
 import (
 	"debug/elf"
-	"fmt"
 	"os"
 	"slices"
 )
@@ -110,12 +109,6 @@ func (e *ELF) Parse() (elfInfo *ELFInfo, err error) {
 func (e *ELFInfo) AdjustOffset(offset uint64) {
 	for idx, symbol := range e.Symbols {
 		e.Symbols[idx].Offset = symbol.Offset + offset
-		if symbol.Name == "main.main" {
-			fmt.Printf("new main.main offset: %x\n", e.Symbols[idx].Offset)
-		}
-		if symbol.Name == "runtime.goexit" {
-			fmt.Printf("new runtime.goexit offset: %x\n", e.Symbols[idx].Offset)
-		}
 	}
 }
 

@@ -64,8 +64,8 @@ func recoverMetadata(fileName string) (metadata ExtractMetadata, err error) {
 	}
 
 	var finalTab *objfile.PclntabCandidate = &tabs[0]
-	foundMainMain, foundRuntimeGoexit := false, false
 	for idx, tab := range tabs {
+		foundMainMain, foundRuntimeGoexit := false, false
 		for _, elem := range tab.ParsedPclntab.Funcs {
 			if elem.Name == "main.main" {
 				foundMainMain = true
