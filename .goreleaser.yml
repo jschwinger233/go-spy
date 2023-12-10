@@ -1,0 +1,29 @@
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: go-spy
+    binary: go-spy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  prerelease: auto
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
